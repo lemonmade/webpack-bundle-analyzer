@@ -25,19 +25,18 @@ function getViewerData(bundleStats, bundleDir, opts) {
 
   const isAssetIncluded = createAssetsFilter(excludeAssets);
 
-  // Sometimes all the information is located in `children` array (e.g. problem in #10)
-  if (_.isEmpty(bundleStats.assets) && !_.isEmpty(bundleStats.children)) {
-    bundleStats = bundleStats.children[0];
-  }
-
   // Picking only `*.js or *.mjs` assets from bundle that has non-empty `chunks` array
-  bundleStats.assets = _.filter(bundleStats.assets, asset => {
-    // Removing query part from filename (yes, somebody uses it for some reason and Webpack supports it)
-    // See #22
-    asset.name = asset.name.replace(FILENAME_QUERY_REGEXP, '');
+  const allAssets = _.filter(
+    [
+      ...bundleStats.assets,
+      ...bundleStats.children.flatMap((child) => child.assets),
+    ], asset => {
+      // Removing query part from filename (yes, somebody uses it for some reason and Webpack supports it)
+      // See #22
+      asset.name = asset.name.replace(FILENAME_QUERY_REGEXP, '');
 
-    return FILENAME_EXTENSIONS.test(asset.name) && !_.isEmpty(asset.chunks) && isAssetIncluded(asset.name);
-  });
+      return FILENAME_EXTENSIONS.test(asset.name) && !_.isEmpty(asset.chunks) && isAssetIncluded(asset.name);
+    });
 
   // Trying to parse bundle assets and get real module sizes if `bundleDir` is provided
   let bundlesSources = null;
@@ -47,7 +46,7 @@ function getViewerData(bundleStats, bundleDir, opts) {
     bundlesSources = {};
     parsedModules = {};
 
-    for (const statAsset of bundleStats.assets) {
+    for (const statAsset of allAssets) {
       const assetFile = path.join(bundleDir, statAsset.name);
       let bundleInfo;
 
@@ -71,7 +70,7 @@ function getViewerData(bundleStats, bundleDir, opts) {
   }
 
   const modules = getBundleModules(bundleStats);
-  const assets = _.transform(bundleStats.assets, (result, statAsset) => {
+  const assets = _.transform(allAssets, (result, statAsset) => {
     const asset = result[statAsset.name] = _.pick(statAsset, 'size');
 
     if (bundlesSources && _.has(bundlesSources, statAsset.name)) {
@@ -115,11 +114,12 @@ function readStatsFromFile(filename) {
 
 function getBundleModules(bundleStats) {
   return _(bundleStats.chunks)
+    .concat(bundleStats.children.flatMap((child) => child.chunks))
     .map('modules')
     .concat(bundleStats.modules)
+    .concat(bundleStats.children.flatMap((child) => child.modules))
     .compact()
     .flatten()
-    .uniqBy('id')
     .value();
 }
 
